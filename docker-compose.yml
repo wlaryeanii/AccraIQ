@@ -1,0 +1,24 @@
+services:
+  accraiq:
+    build: .
+    container_name: accraiq
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount the data directory for GTFS files
+      - ./data:/app/data:ro
+      # Mount the app directory for development (optional)
+      # - ./app:/app/app:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  default:
+    name: accraiq-network

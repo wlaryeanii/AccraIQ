@@ -1,0 +1,41 @@
+services:
+  accraiq:
+    container_name: accraiq
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount the data directory for GTFS files
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.accraiq.entrypoints=web"
+      - "traefik.http.routers.accraiq.rule=Host(`accraiq.guatanga.com`)"
+      - "traefik.http.middlewares.accraiq-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.sslheader.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.accraiq.middlewares=accraiq-https-redirect"
+      - "traefik.http.routers.accraiq-secure.entrypoints=web-secure"
+      - "traefik.http.routers.accraiq-secure.rule=Host(`accraiq.guatanga.com`)"
+      - "traefik.http.routers.accraiq-secure.tls=true"
+      - "traefik.http.routers.accraiq-secure.service=accraiq"
+      - "traefik.http.services.accraiq.loadbalancer.server.port=8501"
+
+networks:
+  proxy:
+    name: proxy
+    external: true
+
+x-dockge:
+  urls:
+    - https://accraiq.guatanga.com
