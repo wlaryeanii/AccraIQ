@@ -698,14 +698,18 @@ class MunicipalImpactCalculator:
     def __init__(self, route_gdf):
         self.route_gdf = route_gdf
 
-        # Municipal parameters (Conservative estimates)
-        self.fuel_efficiency_l_per_km = 0.35
+        # Realistic parameters for Ghana
+        self.fuel_efficiency_l_per_km = 0.12  # 12 L/100 km
         self.co2_kg_per_liter = 2.68
-        self.diesel_price_ghs_per_liter = 15.0
-        self.vehicle_cost_ghc = 89600  # 28000 USD * 3.2 GHS/USD
+        self.diesel_price_ghs_per_liter = 14.5  # Current average
+        self.vehicle_cost_ghc = 150000  # Realistic used trotro cost
         self.daily_trips_per_route = 8
-        self.maintenance_cost_per_km_ghc = 0.48  # 0.15 USD * 3.2 GHS/USD
-        self.driver_salary_per_route_ghc = 9600  # 3000 USD * 3.2 GHS/USD
+        self.maintenance_cost_per_km_ghc = 0.60  # Adjusted for local costs
+        self.driver_salary_per_route_ghc = 3000  # GHS 250/month
+
+        # Fleet optimization parameters
+        self.routes_per_vehicle = 3  # One vehicle can serve ~3 routes efficiently
+        self.vehicle_utilization_rate = 0.75  # 75% utilization (realistic for trotros)
 
     def calculate_comprehensive_impact(
         self, final_labels, valid_indices, selected_routes, coverage_pct
@@ -745,6 +749,17 @@ class MunicipalImpactCalculator:
             annual_fuel_cost_saved_ghc
             + annual_maintenance_saved_ghc
             + annual_driver_savings_ghc
+        )
+
+        # Fleet optimization - realistic vehicle capital savings
+        # Calculate how many fewer vehicles are needed
+        original_vehicles_needed = total_routes / self.routes_per_vehicle
+        retained_vehicles_needed = retained_routes / self.routes_per_vehicle
+        vehicles_saved = max(0, original_vehicles_needed - retained_vehicles_needed)
+
+        # Apply utilization rate to get actual capital freed
+        vehicle_capital_freed_ghc = (
+            vehicles_saved * self.vehicle_cost_ghc * self.vehicle_utilization_rate
         )
 
         # Environmental impact
@@ -794,7 +809,12 @@ class MunicipalImpactCalculator:
             "annual_maintenance_saved_ghc": annual_maintenance_saved_ghc,
             "annual_driver_savings_ghc": annual_driver_savings_ghc,
             "total_annual_savings_ghc": total_annual_savings_ghc,
-            "vehicle_capital_freed_ghc": eliminated_routes * self.vehicle_cost_ghc,
+            "vehicle_capital_freed_ghc": vehicle_capital_freed_ghc,
+            "fleet_vehicles_saved": vehicles_saved,
+            "fleet_utilization_improvement": (
+                retained_routes / max(1, retained_vehicles_needed)
+            )
+            / self.routes_per_vehicle,
             "coverage_retention_pct": coverage_pct,
             "selected_routes": selected_routes,
             "cars_equivalent_removed": cars_equivalent_removed,

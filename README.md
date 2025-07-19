@@ -35,13 +35,11 @@ docker compose up --build -d
 
 ## Why This Works
 
-Unlike traditional approaches that rely on ridership data, we use **geometric route similarity**
-to identify redundancy - similar to how speech recognition compares audio patterns. This reveals
-operational inefficiencies invisible to passenger-count-based methods.
+Unlike traditional approaches that rely on ridership data, we use **geometric route similarity** to identify redundancy - similar to how speech recognition compares audio patterns. This reveals operational inefficiencies invisible to passenger-count-based methods.
 
 ## Key Innovation
 
-**Municipal-grade optimization** that eliminates route redundancy while maintaining service quality. Our mathematical approach delivers ₵39M+ in annual savings while preserving 92% of original stop coverage.
+**Municipal-grade optimization** that eliminates route redundancy while maintaining service quality. Our mathematical approach delivers ₵15.8M+ in annual savings while preserving 92% of original stop coverage.
 
 ## Technical Innovation
 
@@ -52,9 +50,17 @@ operational inefficiencies invisible to passenger-count-based methods.
 ## Results
 
 - **38.9%** route reduction (651 → 398 routes)
-- **₵39M+** in annual municipal savings
-- **6,049 tonnes** CO₂ reduction per year
+- **₵15.8M** in annual municipal savings
+- **2,065 tonnes** CO₂ reduction per year
 - **92%** stop coverage maintained
+- **33.6%** network length reduction (6,537 → 4,338 km)
+
+### Economic Impact Breakdown
+
+- **Fuel Savings**: ₵11,174,657 annually
+- **Maintenance Savings**: ₵3,853,330 annually
+- **Driver Savings**: ₵759,000 annually
+- **Total Annual Savings**: ₵15,786,987
 
 [e6627ada-76cf-4a5b-ab38-741f53ff7c00.webm](https://github.com/user-attachments/assets/7dc9dd86-276c-4124-851d-e384f4f92f35)
 

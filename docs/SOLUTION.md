@@ -10,7 +10,7 @@
 
 We developed a **municipal-grade AI optimization platform** that transforms Accra's transit network from an inefficient patchwork of redundant routes into a mathematically optimized system. Our solution eliminates the critical "Route Redundancy" problem where geometrically similar routes create operational waste without serving additional passengers.
 
-**Key Innovation:** A three-stage automated pipeline combining **Dynamic Time Warping route similarity analysis**, **HDBSCAN clustering**, and **PuLP set cover optimization** that achieves 38.9% route reduction while maintaining 92% coverage and delivering ₵39M+ in annual savings.
+**Key Innovation:** A three-stage automated pipeline combining **Dynamic Time Warping route similarity analysis**, **HDBSCAN clustering**, and **PuLP set cover optimization** that achieves 38.9% route reduction while maintaining 92% coverage and delivering ₵15.8M+ in annual savings.
 
 ---
 
@@ -161,16 +161,25 @@ From our optimization of Accra's 651-route network:
 
 - **38.9%** route reduction (651 → 398 routes)
 - **92.0%** stop coverage retention
-- **₵39,383,561** in total annual savings
-- **6,049 tonnes** CO₂ reduction per year
-- **33.8%** network length reduction (6,537 → 4,329 km)
+- **₵15,786,987** in total annual savings
+- **2,065 tonnes** CO₂ reduction per year
+- **33.6%** network length reduction (6,537 → 4,338 km)
+
+### Economic Impact Breakdown
+
+**Annual Operational Savings:**
+
+- **Fuel Savings**: ₵11,174,657
+- **Maintenance Savings**: ₵3,853,330
+- **Driver Savings**: ₵759,000
+- **Total Annual**: ₵15,786,987
 
 ### Qualitative Impact
 
 **For Accra Metropolitan Assembly:**
 
 - Evidence-based transit planning decisions
-- Massive budget optimization opportunities
+- Substantial budget optimization opportunities
 - Environmental sustainability improvements
 - Reduced traffic congestion
 
@@ -186,7 +195,7 @@ From our optimization of Accra's 651-route network:
 - Lower fuel and maintenance costs
 - Reduced driver requirements (253 fewer routes)
 - Simplified network management
-- ₵22.7M in freed vehicle capital
+- Significant capital efficiency improvements
 
 ---
 
@@ -268,7 +277,7 @@ Professional PDF reports with maps, charts, and actionable recommendations.
 
 **Optimized Network Results:**
 
-- 398 selected routes covering 4,329 km
+- 398 selected routes covering 4,338 km
 - 92% stop coverage maintained
 - 38.9% cost reduction achieved
 
@@ -276,10 +285,10 @@ Professional PDF reports with maps, charts, and actionable recommendations.
 
 **Economic Benefits Breakdown:**
 
-- Fuel Savings: ₵33,859,074 annually
-- Maintenance Savings: ₵3,095,686 annually
-- Driver Savings: ₵2,428,800 annually
-- Vehicle Capital Freed: ₵22,660,800
+- Fuel Savings: ₵11,174,657 annually
+- Maintenance Savings: ₵3,853,330 annually
+- Driver Savings: ₵759,000 annually
+- Total Economic Impact: ₵15,786,987
 
 ### Municipal Dashboard Features
 
@@ -380,7 +389,7 @@ docker compose -f docker-compose-prod.yml up -d
 
 AccraIQ transforms municipal transit optimization from an intuition-based process into a mathematically rigorous, evidence-driven system. By combining cutting-edge algorithms with practical municipal constraints, we deliver both immediate cost savings and a foundation for data-driven urban planning.
 
-**Key Achievement:** We've built a production-ready system that delivers ₵39M+ in annual savings while maintaining service quality—a transformational improvement for Accra's transportation efficiency.
+**Key Achievement:** We've built a production-ready system that delivers ₵15.8M+ in annual savings while maintaining service quality—a transformational improvement for Accra's transportation efficiency.
 
 **Global Impact:** This approach can be applied to any city with GTFS data, potentially optimizing urban mobility for millions of people worldwide while reducing environmental impact.
 
