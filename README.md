@@ -62,7 +62,6 @@ Unlike traditional approaches that rely on ridership data, we use **geometric ro
 - **Driver Savings**: ₵759,000 annually
 - **Total Annual Savings**: ₵15,786,987
 
-[e6627ada-76cf-4a5b-ab38-741f53ff7c00.webm](https://github.com/user-attachments/assets/7dc9dd86-276c-4124-851d-e384f4f92f35)
 
 ## Documentation
 
