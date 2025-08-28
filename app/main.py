@@ -1,5 +1,5 @@
 # app/main.py
-# AccraIQ: Municipal-Grade Transit Optimization Dashboard
+# AccraIQ: Municipal-Grade Transit Optimization Dashboard - Complete Version
 
 import streamlit as st
 import pandas as pd
@@ -8,8 +8,6 @@ import geopandas as gpd
 from shapely.geometry import Point, LineString
 import folium
 from streamlit_folium import st_folium
-import plotly.express as px
-import folium.plugins
 import zipfile
 import os
 import warnings
@@ -17,144 +15,135 @@ from sklearn.cluster import HDBSCAN
 import pyproj
 import json
 import time
-from scipy.spatial import cKDTree
-from scipy.stats import gaussian_kde
 from datetime import datetime
-from io import BytesIO
-import base64
-import tempfile
-
-# PDF Generation imports
-try:
-    import weasyprint
-    from jinja2 import Template
-
-    WEASYPRINT_AVAILABLE = True
-except ImportError:
-    WEASYPRINT_AVAILABLE = False
-    st.warning("WeasyPrint not available. Install with: pip install weasyprint jinja2")
-
-# Map screenshot imports
-try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-
-    SELENIUM_AVAILABLE = True
-except ImportError:
-    SELENIUM_AVAILABLE = False
-    st.warning("Selenium not available. Install with: pip install selenium")
+import heapq
+import math
 
 warnings.filterwarnings("ignore")
 
-# Core libraries - matching notebook
+# Core libraries
 from dtw import dtw
 import pulp as pl
 
-# Configure Streamlit
+# ---------- Page & Global Styles ----------
 st.set_page_config(
     page_title="AccraIQ: Municipal Transit Optimization",
     page_icon="🚌",
     layout="wide",
     initial_sidebar_state="collapsed",
+    menu_items={"About": "AccraIQ — DTW + HDBSCAN + Set-Cover to reduce redundant routes while preserving stop coverage."}
 )
 
-# Custom CSS - Simplified
-st.markdown(
-    """
+st.markdown("""
 <style>
-    .main-header {
-        background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
-        color: white;
-        padding: 2rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
-        text-align: center;
-    }
-    
-    .metric-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        border: 1px solid #e0e0e0;
-        text-align: center;
-        margin: 0.5rem 0;
-    }
-    
-    .metric-card.success {
-        border-left: 5px solid #28a745;
-    }
-    
-    .metric-card.warning {
-        border-left: 5px solid #ffc107;
-    }
-    
-    .metric-card.info {
-        border-left: 5px solid #17a2b8;
-    }
-    
-    .metric-value {
-        font-size: 2rem;
-        font-weight: bold;
-        color: #333;
-        margin: 0.5rem 0;
-    }
-    
-    .metric-label {
-        font-size: 0.9rem;
-        color: #666;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
-    .section-header {
-        color: #1e3c72;
-        border-bottom: 2px solid #2a5298;
-        padding-bottom: 0.5rem;
-        margin: 2rem 0 1rem 0;
-    }
-    
-    .run-button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 15px;
-        text-align: center;
-        margin: 2rem 0;
-        border: none;
-    }
-    
-    .results-summary {
-        background: #f8f9fa;
-        padding: 2rem;
-        border-radius: 10px;
-        margin: 2rem 0;
-        border-left: 5px solid #2a5298;
-    }
+:root {
+  --bg: #ffffff;
+  --fg: #121212;
+  --muted: #5f6368;
+  --primary: #1e3c72;     /* deep blue */
+  --accent:  #2a5298;     /* mid blue */
+  --ok: #2e7d32;          /* green */
+  --warn: #ffb300;        /* amber */
+}
+[data-theme="dark"] :root {
+  --bg: #1f1f1f;
+  --fg: #f1f3f4;
+  --muted: #a7adb2;
+  --primary: #6aa2ff;
+  --accent:  #2a5298;
+  --ok: #7bdc8a;
+  --warn: #ffd65c;
+}
+
+/* Header */
+.header-style {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+  color: #fff;
+  padding: 1.1rem 1.25rem;
+  border-radius: 14px;
+  margin: 0 0 1rem 0;
+  box-shadow: 0 6px 18px rgba(0,0,0,.12);
+}
+.header-style h2 { margin: 0 0 .25rem 0; }
+.header-style p  { margin: 0; opacity: .95; }
+
+/* KPI grid */
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; }
+.kpi {
+  background: var(--bg);
+  color: var(--fg);
+  border-radius: 14px;
+  padding: .9rem 1rem;
+  border: 1px solid rgba(0,0,0,.06);
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+  text-align: center;
+}
+.kpi h4 { margin: 0; font-weight: 600; font-size: .95rem; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.kpi .value { font-size: 1.6rem; line-height: 1.2; margin-top: .25rem; font-weight: 700; }
+
+/* Section title */
+.section-title { font-size: 1.1rem; font-weight: 700; margin: .5rem 0 .4rem 0; }
+
+/* Compact sidebar spacing */
+section[data-testid="stSidebar"] .stRadio, 
+section[data-testid="stSidebar"] .stSelectbox,
+section[data-testid="stSidebar"] .stNumberInput,
+section[data-testid="stSidebar"] .stSlider,
+section[data-testid="stSidebar"] .stToggle {
+  margin-bottom: .5rem;
+}
+
+.streamlit-expanderHeader { font-weight: 700; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
+
+def header():
+    st.markdown("""
+    <div class="header-style">
+      <h2>🚌 AccraIQ — Municipal Transit Optimization</h2>
+      <p>DTW (shape) + HDBSCAN (families) + Set-Cover (representatives) → fewer routes, same coverage.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ---- Clear, numeric presets (readable labels) ----
+PRESETS = {
+    "⚡ Fast demo — 90% coverage, cap 200 routes": {
+        "coverage_threshold": 0.90,  # keep at least 90% of stops
+        "target_density": 5,         # lighter DTW signature (faster)
+        "sample_cap": 200,           # analyze up to 200 routes
+        "blurb": "Great for demos. Faster run, still representative."
+    },
+    "🏛 Municipal default — 92% coverage (all routes)": {
+        "coverage_threshold": 0.92,
+        "target_density": 8,
+        "sample_cap": None,          # all routes
+        "blurb": "Balanced. Matches recommended settings for planning."
+    },
+    "🛡 Coverage-first — 96% coverage (all routes)": {
+        "coverage_threshold": 0.96,
+        "target_density": 8,
+        "sample_cap": None,
+        "blurb": "Prioritize coverage. Keeps more routes to protect access."
+    },
+}
 
 # =============================================================================
-# EXACT NOTEBOOK IMPLEMENTATIONS
+# CORE ALGORITHM FUNCTIONS
 # =============================================================================
-
 
 @st.cache_data
 def load_real_gtfs_data(uploaded_file=None):
-    """Load real Accra GTFS data - exact notebook implementation"""
-
+    """Load real Accra GTFS data"""
+    
     if uploaded_file is not None:
-        # Handle uploaded file
         gtfs_path = uploaded_file
         print(f"📊 Loading GTFS data from uploaded file...")
     else:
-        # Always try data directory first, then fallback paths
         data_paths = [
-            "data/gtfs-accra-ghana-2016.zip",  # Primary data directory
-            "./data/gtfs-accra-ghana-2016.zip",  # Current directory data
-            "gtfs-accra-ghana-2016.zip",  # Root directory
-            "../data/gtfs-accra-ghana-2016.zip",  # Parent data directory
+            "data/gtfs-accra-ghana-2016.zip",
+            "./data/gtfs-accra-ghana-2016.zip",
+            "gtfs-accra-ghana-2016.zip",
+            "../data/gtfs-accra-ghana-2016.zip",
         ]
 
         gtfs_path = None
@@ -165,9 +154,7 @@ def load_real_gtfs_data(uploaded_file=None):
                 break
 
         if gtfs_path is None:
-            st.warning(
-                "No GTFS data found. Please ensure gtfs-accra-ghana-2016.zip exists in the data/ directory."
-            )
+            st.warning("No GTFS data found. Please ensure gtfs-accra-ghana-2016.zip exists in the data/ directory.")
             return None
 
     try:
@@ -182,15 +169,8 @@ def load_real_gtfs_data(uploaded_file=None):
 
             data = {}
             gtfs_files = [
-                "agency.txt",
-                "calendar.txt",
-                "routes.txt",
-                "stop_times.txt",
-                "stops.txt",
-                "trips.txt",
-                "shapes.txt",
-                "fare_attributes.txt",
-                "fare_rules.txt",
+                "agency.txt", "calendar.txt", "routes.txt", "stop_times.txt", 
+                "stops.txt", "trips.txt", "shapes.txt", "fare_attributes.txt", "fare_rules.txt"
             ]
 
             for file_name in gtfs_files:
@@ -207,10 +187,8 @@ def load_real_gtfs_data(uploaded_file=None):
         st.error(f"Error loading GTFS file: {e}")
         return None
 
-
 def classify_route_type(coords, length_km, straightness_ratio):
-    """Classify route type based on geometric characteristics - exact notebook implementation"""
-
+    """Classify route type based on geometric characteristics"""
     if length_km < 5:
         return "short_local"
     elif length_km > 25:
@@ -222,15 +200,13 @@ def classify_route_type(coords, length_km, straightness_ratio):
     else:
         return "standard_route"
 
-
 @st.cache_data
 def extract_all_route_geometries(gtfs_data):
-    """Extract geometries for ALL routes - exact notebook implementation"""
-
+    """Extract geometries for ALL routes"""
+    
     if gtfs_data["shapes"].empty:
         raise ValueError("No shapes data available")
 
-    # Get route-to-shape mapping
     route_shape_map = {}
     route_info_map = {}
 
@@ -238,9 +214,7 @@ def extract_all_route_geometries(gtfs_data):
         for _, route in gtfs_data["routes"].iterrows():
             route_info_map[route["route_id"]] = {
                 "route_short_name": route.get("route_short_name", route["route_id"]),
-                "route_long_name": route.get(
-                    "route_long_name", f"Route {route['route_id']}"
-                ),
+                "route_long_name": route.get("route_long_name", f"Route {route['route_id']}"),
                 "route_type": route.get("route_type", 3),
             }
 
@@ -253,20 +227,14 @@ def extract_all_route_geometries(gtfs_data):
 
     processed = 0
     for shape_id in unique_shapes:
-        shape_points = gtfs_data["shapes"][
-            gtfs_data["shapes"]["shape_id"] == shape_id
-        ].sort_values("shape_pt_sequence")
+        shape_points = gtfs_data["shapes"][gtfs_data["shapes"]["shape_id"] == shape_id].sort_values("shape_pt_sequence")
 
         if len(shape_points) >= 2:
-            coords = [
-                (row["shape_pt_lon"], row["shape_pt_lat"])
-                for _, row in shape_points.iterrows()
-            ]
+            coords = [(row["shape_pt_lon"], row["shape_pt_lat"]) for _, row in shape_points.iterrows()]
 
             try:
                 line = LineString(coords)
 
-                # Find corresponding route
                 route_id = None
                 route_info = {}
 
@@ -284,42 +252,31 @@ def extract_all_route_geometries(gtfs_data):
                         "route_type": 3,
                     }
 
-                # Calculate metrics
                 length_km = line.length * 111
                 start_point = Point(coords[0])
                 end_point = Point(coords[-1])
                 direct_distance = start_point.distance(end_point) * 111
                 straightness_ratio = direct_distance / length_km if length_km > 0 else 0
-                route_type_geo = classify_route_type(
-                    coords, length_km, straightness_ratio
-                )
+                route_type_geo = classify_route_type(coords, length_km, straightness_ratio)
 
-                route_geometries.append(
-                    {
-                        "route_id": route_id,
-                        "shape_id": shape_id,
-                        "route_short_name": route_info.get(
-                            "route_short_name", route_id
-                        ),
-                        "route_long_name": route_info.get(
-                            "route_long_name", f"Route {route_id}"
-                        ),
-                        "geometry": line,
-                        "length_km": length_km,
-                        "num_points": len(shape_points),
-                        "straightness_ratio": straightness_ratio,
-                        "point_density_per_km": len(shape_points) / length_km
-                        if length_km > 0
-                        else 0,
-                        "start_lat": coords[0][1],
-                        "start_lon": coords[0][0],
-                        "end_lat": coords[-1][1],
-                        "end_lon": coords[-1][0],
-                        "centroid_lat": line.centroid.y,
-                        "centroid_lon": line.centroid.x,
-                        "route_type_geo": route_type_geo,
-                    }
-                )
+                route_geometries.append({
+                    "route_id": route_id,
+                    "shape_id": shape_id,
+                    "route_short_name": route_info.get("route_short_name", route_id),
+                    "route_long_name": route_info.get("route_long_name", f"Route {route_id}"),
+                    "geometry": line,
+                    "length_km": length_km,
+                    "num_points": len(shape_points),
+                    "straightness_ratio": straightness_ratio,
+                    "point_density_per_km": len(shape_points) / length_km if length_km > 0 else 0,
+                    "start_lat": coords[0][1],
+                    "start_lon": coords[0][0],
+                    "end_lat": coords[-1][1],
+                    "end_lon": coords[-1][0],
+                    "centroid_lat": line.centroid.y,
+                    "centroid_lon": line.centroid.x,
+                    "route_type_geo": route_type_geo,
+                })
 
                 processed += 1
 
@@ -328,17 +285,12 @@ def extract_all_route_geometries(gtfs_data):
 
     return gpd.GeoDataFrame(route_geometries, crs="EPSG:4326")
 
-
 class CoordinateNormalizer:
-    """Normalize coordinates for consistent distance calculations - exact notebook implementation"""
+    """Normalize coordinates for consistent distance calculations"""
 
     def __init__(self, method="utm"):
         self.method = method
-        self.transformer = pyproj.Transformer.from_crs(
-            "EPSG:4326",
-            "EPSG:32630",
-            always_xy=True,  # UTM Zone 30N for Accra
-        )
+        self.transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32630", always_xy=True)
 
     def normalize(self, coords):
         """Convert coordinates to normalized form"""
@@ -351,9 +303,8 @@ class CoordinateNormalizer:
         else:
             return np.array(coords)
 
-
 class ImprovedDTWAnalyzer:
-    """Improved DTW analysis - exact notebook implementation"""
+    """Improved DTW analysis"""
 
     def __init__(self, route_gdf, normalizer=None):
         self.route_gdf = route_gdf
@@ -362,7 +313,7 @@ class ImprovedDTWAnalyzer:
         self.valid_route_indices = []
 
     def extract_route_signature(self, route_geometry, target_points=30):
-        """Extract comprehensive route signature - exact notebook implementation"""
+        """Extract comprehensive route signature"""
 
         if route_geometry.geom_type != "LineString":
             return None
@@ -375,7 +326,6 @@ class ImprovedDTWAnalyzer:
             normalized_coords = self.normalizer.normalize(coords)
             line = LineString(normalized_coords)
 
-            # Interpolate to fixed number of points
             distances = np.linspace(0, line.length, target_points)
             interpolated_points = []
 
@@ -385,7 +335,6 @@ class ImprovedDTWAnalyzer:
 
             interpolated_points = np.array(interpolated_points)
 
-            # Calculate bearing sequence
             bearings = []
             for i in range(len(interpolated_points) - 1):
                 dx = interpolated_points[i + 1, 0] - interpolated_points[i, 0]
@@ -395,13 +344,8 @@ class ImprovedDTWAnalyzer:
 
             bearings = np.array(bearings)
 
-            # Create bearing histogram
             bearing_hist, _ = np.histogram(bearings, bins=12, range=(-np.pi, np.pi))
-            bearing_hist = (
-                bearing_hist / np.sum(bearing_hist)
-                if np.sum(bearing_hist) > 0
-                else bearing_hist
-            )
+            bearing_hist = bearing_hist / np.sum(bearing_hist) if np.sum(bearing_hist) > 0 else bearing_hist
 
             route_signature = {
                 "coordinates": interpolated_points,
@@ -421,21 +365,17 @@ class ImprovedDTWAnalyzer:
             return None
 
     def calculate_improved_distance(self, sig1, sig2, weights=(0.5, 0.3, 0.2)):
-        """Calculate improved composite distance - exact notebook implementation"""
+        """Calculate improved composite distance"""
 
         w_dtw, w_bearing, w_spatial = weights
 
-        # Enhanced DTW distance
         try:
-            alignment = dtw(
-                sig1["coordinates"], sig2["coordinates"], distance_only=True
-            )
+            alignment = dtw(sig1["coordinates"], sig2["coordinates"], distance_only=True)
             scale_factor = np.sqrt(max(sig1["length_m"], sig2["length_m"]) / 1000)
             dtw_dist = alignment.distance / (len(sig1["coordinates"]) * scale_factor)
         except:
             dtw_dist = np.linalg.norm(sig1["centroid"] - sig2["centroid"]) / 1000
 
-        # Bearing similarity
         hist1, hist2 = sig1["bearing_histogram"], sig2["bearing_histogram"]
         dot_product = np.dot(hist1, hist2)
         norm1, norm2 = np.linalg.norm(hist1), np.linalg.norm(hist2)
@@ -446,10 +386,7 @@ class ImprovedDTWAnalyzer:
         else:
             bearing_dist = 1.0
 
-        # Spatial features
-        length_ratio = min(sig1["length_m"], sig2["length_m"]) / max(
-            sig1["length_m"], sig2["length_m"]
-        )
+        length_ratio = min(sig1["length_m"], sig2["length_m"]) / max(sig1["length_m"], sig2["length_m"])
         length_dist = 1 - length_ratio
 
         start_dist = np.linalg.norm(sig1["start_point"] - sig2["start_point"]) / 1000
@@ -459,63 +396,39 @@ class ImprovedDTWAnalyzer:
 
         spatial_dist = 0.5 * length_dist + 0.5 * (endpoint_dist / 10)
 
-        # Combine distances
-        composite_dist = (
-            w_dtw * dtw_dist + w_bearing * bearing_dist + w_spatial * spatial_dist
-        )
+        composite_dist = w_dtw * dtw_dist + w_bearing * bearing_dist + w_spatial * spatial_dist
 
         return composite_dist
 
     def compute_improved_similarity_matrix(self, target_density=8, sample_size=None):
-        """Compute improved similarity matrix with rescaling - exact notebook implementation"""
+        """Compute improved similarity matrix with rescaling"""
 
-        n_routes = (
-            len(self.route_gdf)
-            if sample_size is None
-            else min(sample_size, len(self.route_gdf))
-        )
+        n_routes = len(self.route_gdf) if sample_size is None else min(sample_size, len(self.route_gdf))
 
-        # Extract route signatures
         signatures = {}
         valid_routes = []
 
         route_sample = self.route_gdf.head(n_routes) if sample_size else self.route_gdf
 
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
         for idx, (row_idx, route) in enumerate(route_sample.iterrows()):
-            status_text.text(f"Extracting route signatures: {idx + 1}/{n_routes}")
-            progress_bar.progress((idx + 1) / n_routes)
-
-            sig = self.extract_route_signature(
-                route["geometry"], target_points=target_density * 4
-            )
+            sig = self.extract_route_signature(route["geometry"], target_points=target_density * 4)
             if sig is not None:
                 signatures[row_idx] = sig
                 valid_routes.append(row_idx)
 
-        # Compute distance matrix
         n_valid = len(valid_routes)
         distance_matrix = np.zeros((n_valid, n_valid))
 
-        status_text.text("Computing distance matrix...")
-        progress_bar.progress(0)
-
         for i in range(n_valid):
-            progress_bar.progress(i / n_valid)
             for j in range(i, n_valid):
                 if i == j:
                     distance_matrix[i, j] = 0.0
                 else:
                     idx1, idx2 = valid_routes[i], valid_routes[j]
-                    dist = self.calculate_improved_distance(
-                        signatures[idx1], signatures[idx2]
-                    )
+                    dist = self.calculate_improved_distance(signatures[idx1], signatures[idx2])
                     distance_matrix[i, j] = dist
                     distance_matrix[j, i] = dist
 
-        # Rescale by median
         distance_values_for_scaling = distance_matrix[distance_matrix > 0]
 
         if len(distance_values_for_scaling) > 0:
@@ -527,18 +440,11 @@ class ImprovedDTWAnalyzer:
         self.route_signatures = signatures
         self.valid_route_indices = valid_routes
 
-        progress_bar.empty()
-        status_text.empty()
-
         return distance_matrix_scaled
 
+def density_based_clustering_leaf_method(distance_matrix, route_indices, min_cluster_size=5, min_samples=5):
+    """Fixed clustering with HDBSCAN leaf method"""
 
-def density_based_clustering_leaf_method(
-    distance_matrix, route_indices, min_cluster_size=5, min_samples=5
-):
-    """Fixed clustering with HDBSCAN leaf method - exact notebook implementation"""
-
-    # HDBSCAN with leaf method
     clusterer = HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
@@ -552,7 +458,6 @@ def density_based_clustering_leaf_method(
     n_clusters = len(set(labels[labels >= 0]))
     n_noise = np.sum(labels == -1)
 
-    # Two-pass clustering for noise refinement
     final_labels = labels.copy()
     noise_indices = np.where(labels == -1)[0]
 
@@ -578,11 +483,7 @@ def density_based_clustering_leaf_method(
                 if noise_labels[i] >= 0:
                     final_labels[noise_idx] = next_label + noise_labels[i]
                 else:
-                    final_labels[noise_idx] = (
-                        next_label
-                        + n_micro_clusters
-                        + (remaining_noise - np.sum(noise_labels[i:] == -1))
-                    )
+                    final_labels[noise_idx] = next_label + n_micro_clusters + (remaining_noise - np.sum(noise_labels[i:] == -1))
 
             total_real_clusters = n_clusters + n_micro_clusters
             total_singletons = remaining_noise
@@ -604,59 +505,43 @@ def density_based_clustering_leaf_method(
 
     return final_labels
 
+def pulp_set_cover_optimization(final_labels, route_indices, route_gdf, gtfs_data, coverage_threshold=0.92):
+    """PuLP-based set cover optimization"""
 
-def pulp_set_cover_optimization(
-    final_labels, route_indices, route_gdf, gtfs_data, coverage_threshold=0.92
-):
-    """PuLP-based set cover optimization - exact notebook implementation"""
-
-    # Build route-to-stops mapping
     if gtfs_data["stop_times"].empty or gtfs_data["trips"].empty:
         return [], 0.0, 0
 
     route_to_stops = {}
     trips_df = gtfs_data["trips"]
     stop_times_df = gtfs_data["stop_times"]
-    merged = pd.merge(
-        trips_df[["route_id", "trip_id"]],
-        stop_times_df[["trip_id", "stop_id"]],
-        on="trip_id",
-    )
+    merged = pd.merge(trips_df[["route_id", "trip_id"]], stop_times_df[["trip_id", "stop_id"]], on="trip_id")
 
     for rid, group in merged.groupby("route_id"):
         route_to_stops[rid] = set(group["stop_id"].unique())
 
     all_stops = set(stop_times_df["stop_id"].unique())
 
-    # Build cluster mapping
     clusters = {}
     for route_idx, cluster_label in enumerate(final_labels):
         if route_idx < len(route_indices):
             route_id = route_gdf.iloc[route_indices[route_idx]]["route_id"]
             clusters.setdefault(cluster_label, []).append(route_id)
 
-    # Get candidate routes
     all_candidate_routes = []
     routes_covering = {stop: [] for stop in all_stops}
 
     for cluster_routes in clusters.values():
         all_candidate_routes.extend(cluster_routes)
 
-    # Build coverage mapping
     for route_id in all_candidate_routes:
         if route_id in route_to_stops:
             for stop in route_to_stops[route_id]:
                 routes_covering[stop].append(route_id)
 
-    # Filter coverable stops
     coverable_stops = [stop for stop in all_stops if len(routes_covering[stop]) > 0]
     target_stops_count = int(len(coverable_stops) * coverage_threshold)
 
-    # Set up PuLP problem
-    x = {
-        route: pl.LpVariable(f"x_{route}", 0, 1, pl.LpBinary)
-        for route in all_candidate_routes
-    }
+    x = {route: pl.LpVariable(f"x_{route}", 0, 1, pl.LpBinary) for route in all_candidate_routes}
 
     prob = pl.LpProblem("MinimalSetCover", pl.LpMinimize)
     prob += pl.lpSum(x.values())
@@ -667,19 +552,15 @@ def pulp_set_cover_optimization(
         stop_coverage_vars[stop] = pl.LpVariable(f"covered_{stop}", 0, 1, pl.LpBinary)
 
         if len(routes_covering[stop]) > 0:
-            prob += stop_coverage_vars[stop] <= pl.lpSum(
-                x[route] for route in routes_covering[stop]
-            )
+            prob += stop_coverage_vars[stop] <= pl.lpSum(x[route] for route in routes_covering[stop])
 
     prob += pl.lpSum(stop_coverage_vars.values()) >= target_stops_count
 
-    # Solve
     prob.solve(pl.PULP_CBC_CMD(msg=False))
 
     if prob.status == pl.LpStatusOptimal:
         selected_routes = [route for route, var in x.items() if var.value() == 1]
 
-        # Calculate coverage
         covered_stops = set()
         for route in selected_routes:
             covered_stops.update(route_to_stops.get(route, set()))
@@ -691,83 +572,54 @@ def pulp_set_cover_optimization(
     else:
         raise RuntimeError("PuLP optimization failed to find optimal solution")
 
-
 class MunicipalImpactCalculator:
-    """Calculate comprehensive municipal impact - exact notebook implementation"""
+    """Calculate comprehensive municipal impact"""
 
     def __init__(self, route_gdf):
         self.route_gdf = route_gdf
 
-        # Realistic parameters for Ghana
-        self.fuel_efficiency_l_per_km = 0.12  # 12 L/100 km
+        self.fuel_efficiency_l_per_km = 0.12
         self.co2_kg_per_liter = 2.68
-        self.diesel_price_ghs_per_liter = 14.5  # Current average
-        self.vehicle_cost_ghc = 150000  # Realistic used trotro cost
+        self.diesel_price_ghs_per_liter = 14.5
+        self.vehicle_cost_ghc = 150000
         self.daily_trips_per_route = 8
-        self.maintenance_cost_per_km_ghc = 0.60  # Adjusted for local costs
-        self.driver_salary_per_route_ghc = 3000  # GHS 250/month
+        self.maintenance_cost_per_km_ghc = 0.60
+        self.driver_salary_per_route_ghc = 3000
 
-        # Fleet optimization parameters
-        self.routes_per_vehicle = 3  # One vehicle can serve ~3 routes efficiently
-        self.vehicle_utilization_rate = 0.75  # 75% utilization (realistic for trotros)
+        self.routes_per_vehicle = 3
+        self.vehicle_utilization_rate = 0.75
 
-    def calculate_comprehensive_impact(
-        self, final_labels, valid_indices, selected_routes, coverage_pct
-    ):
-        """Calculate full municipal impact - exact notebook implementation"""
+    def calculate_comprehensive_impact(self, final_labels, valid_indices, selected_routes, coverage_pct):
+        """Calculate full municipal impact"""
 
         total_routes = len(valid_indices)
         retained_routes = len(selected_routes)
         eliminated_routes = total_routes - retained_routes
 
-        # Length analysis
         total_original_length = self.route_gdf.loc[valid_indices]["length_km"].sum()
-        selected_route_gdf = self.route_gdf[
-            self.route_gdf["route_id"].isin(selected_routes)
-        ]
-        retained_length = (
-            selected_route_gdf["length_km"].sum() if not selected_route_gdf.empty else 0
-        )
+        selected_route_gdf = self.route_gdf[self.route_gdf["route_id"].isin(selected_routes)]
+        retained_length = selected_route_gdf["length_km"].sum() if not selected_route_gdf.empty else 0
         eliminated_length_km = total_original_length - retained_length
 
-        # Economic calculations
         daily_route_km_saved = eliminated_length_km * self.daily_trips_per_route
         daily_fuel_saved_l = daily_route_km_saved * self.fuel_efficiency_l_per_km
         annual_fuel_saved_l = daily_fuel_saved_l * 365
-        annual_fuel_cost_saved_ghc = (
-            annual_fuel_saved_l * self.diesel_price_ghs_per_liter
-        )
+        annual_fuel_cost_saved_ghc = annual_fuel_saved_l * self.diesel_price_ghs_per_liter
 
-        annual_maintenance_saved_ghc = (
-            eliminated_length_km
-            * 365
-            * self.daily_trips_per_route
-            * self.maintenance_cost_per_km_ghc
-        )
+        annual_maintenance_saved_ghc = eliminated_length_km * 365 * self.daily_trips_per_route * self.maintenance_cost_per_km_ghc
         annual_driver_savings_ghc = eliminated_routes * self.driver_salary_per_route_ghc
-        total_annual_savings_ghc = (
-            annual_fuel_cost_saved_ghc
-            + annual_maintenance_saved_ghc
-            + annual_driver_savings_ghc
-        )
+        total_annual_savings_ghc = annual_fuel_cost_saved_ghc + annual_maintenance_saved_ghc + annual_driver_savings_ghc
 
-        # Fleet optimization - realistic vehicle capital savings
-        # Calculate how many fewer vehicles are needed
         original_vehicles_needed = total_routes / self.routes_per_vehicle
         retained_vehicles_needed = retained_routes / self.routes_per_vehicle
         vehicles_saved = max(0, original_vehicles_needed - retained_vehicles_needed)
 
-        # Apply utilization rate to get actual capital freed
-        vehicle_capital_freed_ghc = (
-            vehicles_saved * self.vehicle_cost_ghc * self.vehicle_utilization_rate
-        )
+        vehicle_capital_freed_ghc = vehicles_saved * self.vehicle_cost_ghc * self.vehicle_utilization_rate
 
-        # Environmental impact
         annual_co2_saved_tonnes = (annual_fuel_saved_l * self.co2_kg_per_liter) / 1000
         cars_equivalent_removed = annual_co2_saved_tonnes / 4.6
         trees_equivalent_planted = annual_co2_saved_tonnes * 16
 
-        # Cluster analysis
         cluster_analysis = []
         unique_clusters = np.unique(final_labels)
         valid_route_data = self.route_gdf.loc[valid_indices].copy()
@@ -775,23 +627,16 @@ class MunicipalImpactCalculator:
 
         for cluster_id in unique_clusters:
             cluster_routes = valid_route_data[valid_route_data["cluster"] == cluster_id]
-            representatives = [
-                r for r in selected_routes if r in cluster_routes["route_id"].values
-            ]
+            representatives = [r for r in selected_routes if r in cluster_routes["route_id"].values]
 
-            cluster_analysis.append(
-                {
-                    "cluster_id": cluster_id,
-                    "n_routes": len(cluster_routes),
-                    "representatives_selected": len(representatives),
-                    "cluster_length_km": cluster_routes["length_km"].sum(),
-                    "avg_route_length": cluster_routes["length_km"].mean(),
-                    "reduction_in_cluster": 1
-                    - (len(representatives) / len(cluster_routes))
-                    if len(cluster_routes) > 0
-                    else 0,
-                }
-            )
+            cluster_analysis.append({
+                "cluster_id": cluster_id,
+                "n_routes": len(cluster_routes),
+                "representatives_selected": len(representatives),
+                "cluster_length_km": cluster_routes["length_km"].sum(),
+                "avg_route_length": cluster_routes["length_km"].mean(),
+                "reduction_in_cluster": 1 - (len(representatives) / len(cluster_routes)) if len(cluster_routes) > 0 else 0,
+            })
 
         return {
             "total_routes": total_routes,
@@ -801,8 +646,7 @@ class MunicipalImpactCalculator:
             "total_length_km": total_original_length,
             "retained_length_km": retained_length,
             "eliminated_length_km": eliminated_length_km,
-            "length_reduction_pct": (eliminated_length_km / total_original_length)
-            * 100,
+            "length_reduction_pct": (eliminated_length_km / total_original_length) * 100,
             "annual_fuel_saved_l": annual_fuel_saved_l,
             "annual_co2_saved_tonnes": annual_co2_saved_tonnes,
             "annual_fuel_cost_saved_ghc": annual_fuel_cost_saved_ghc,
@@ -811,10 +655,7 @@ class MunicipalImpactCalculator:
             "total_annual_savings_ghc": total_annual_savings_ghc,
             "vehicle_capital_freed_ghc": vehicle_capital_freed_ghc,
             "fleet_vehicles_saved": vehicles_saved,
-            "fleet_utilization_improvement": (
-                retained_routes / max(1, retained_vehicles_needed)
-            )
-            / self.routes_per_vehicle,
+            "fleet_utilization_improvement": (retained_routes / max(1, retained_vehicles_needed)) / self.routes_per_vehicle,
             "coverage_retention_pct": coverage_pct,
             "selected_routes": selected_routes,
             "cars_equivalent_removed": cars_equivalent_removed,
@@ -823,1079 +664,142 @@ class MunicipalImpactCalculator:
             "total_clusters": len(unique_clusters),
         }
 
+# ---------- ROUTE CHECKER HELPERS (no extra deps) ----------
 
-def validate_municipal_viability(
-    impact_summary,
-    target_reduction_range=(25, 40),
-    min_coverage=90,
-    max_cluster_share=40,
-):
-    """Validate municipal viability - exact notebook implementation"""
-
-    reduction_pct = impact_summary["route_reduction_pct"]
-    coverage_pct = impact_summary["coverage_retention_pct"]
-
-    # Calculate cluster statistics
-    cluster_analysis = impact_summary["cluster_analysis"]
-    total_routes = impact_summary["total_routes"]
-
-    largest_cluster_size = max([c["n_routes"] for c in cluster_analysis])
-    largest_cluster_share = (largest_cluster_size / total_routes) * 100
-
-    # Check criteria
-    reduction_ok = (
-        target_reduction_range[0] <= reduction_pct <= target_reduction_range[1]
-    )
-    coverage_ok = coverage_pct >= (min_coverage - 1e-9)
-    cluster_size_ok = largest_cluster_share <= max_cluster_share
-
-    all_criteria_met = reduction_ok and coverage_ok and cluster_size_ok
-
-    return {
-        "viable": all_criteria_met,
-        "reduction_ok": reduction_ok,
-        "coverage_ok": coverage_ok,
-        "cluster_size_ok": cluster_size_ok,
-        "reduction_pct": reduction_pct,
-        "coverage_pct": coverage_pct,
-        "largest_cluster_share": largest_cluster_share,
-    }
-
-
-# =============================================================================
-# STOP DENSITY OVERLAY FUNCTIONS
-# =============================================================================
-
+def haversine_km(lat1, lon1, lat2, lon2):
+    R = 6371.0088
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = p2 - p1
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+    return 2*R*math.asin(math.sqrt(a))
 
 @st.cache_data
-def extract_stop_data(gtfs_data):
-    """Extract and process stop data from GTFS for density analysis"""
-
-    if gtfs_data["stops"].empty:
-        return None
-
-    stops_df = gtfs_data["stops"].copy()
-
-    # Ensure we have required columns
-    required_cols = ["stop_id", "stop_lat", "stop_lon"]
-    if not all(col in stops_df.columns for col in required_cols):
-        return None
-
-    # Clean and filter stops
-    stops_df = stops_df.dropna(subset=["stop_lat", "stop_lon"])
-    stops_df = stops_df[
-        (stops_df["stop_lat"] != 0)
-        & (stops_df["stop_lon"] != 0)
-        & (stops_df["stop_lat"].between(-90, 90))
-        & (stops_df["stop_lon"].between(-180, 180))
-    ]
-
-    if len(stops_df) == 0:
-        return None
-
-    # Create geometry
-    stops_gdf = gpd.GeoDataFrame(
-        stops_df,
-        geometry=gpd.points_from_xy(stops_df["stop_lon"], stops_df["stop_lat"]),
-        crs="EPSG:4326",
-    )
-
-    return stops_gdf
-
-
-def calculate_stop_density(stops_gdf, method="kde", grid_size=0.01, bandwidth=0.005):
-    """Calculate stop density using KDE or hexbin method"""
-
-    if stops_gdf is None or len(stops_gdf) == 0:
-        return None
-
-    if method == "kde":
-        # Kernel Density Estimation
-        coords = np.column_stack([stops_gdf.geometry.x, stops_gdf.geometry.y])
-
-        # Create regular grid for density estimation
-        x_min, y_min, x_max, y_max = stops_gdf.total_bounds
-        x_range = np.arange(x_min, x_max, grid_size)
-        y_range = np.arange(y_min, y_max, grid_size)
-        xx, yy = np.meshgrid(x_range, y_range)
-        grid_coords = np.column_stack([xx.ravel(), yy.ravel()])
-
-        # Calculate KDE
-        kde = gaussian_kde(coords.T, bw_method=bandwidth)
-        density = kde(grid_coords.T).reshape(xx.shape)
-
-        # Create density GeoDataFrame
-        density_data = []
-        for i, y in enumerate(y_range):
-            for j, x in enumerate(x_range):
-                if density[i, j] > 0:
-                    density_data.append(
-                        {
-                            "geometry": Point(x, y),
-                            "density": density[i, j],
-                            "x": x,
-                            "y": y,
-                        }
-                    )
-
-        density_gdf = gpd.GeoDataFrame(density_data, crs="EPSG:4326")
-
-    elif method == "hexbin":
-        # Hexagonal binning (requires h3 library)
-        try:
-            from shapely.geometry import Polygon
-            import h3
-
-            # Convert to H3 hexagons
-            hex_data = []
-            for _, stop in stops_gdf.iterrows():
-                h3_index = h3.latlng_to_h3(stop.geometry.y, stop.geometry.x, 8)
-                hex_data.append(
-                    {
-                        "h3_index": h3_index,
-                        "geometry": Point(stop.geometry.x, stop.geometry.y),
-                    }
-                )
-
-            # Count stops per hexagon
-            hex_counts = (
-                pd.DataFrame(hex_data)
-                .groupby("h3_index")
-                .size()
-                .reset_index(name="count")
-            )
-
-            # Create hexagon geometries
-            density_data = []
-            for _, row in hex_counts.iterrows():
-                hex_boundary = h3.h3_to_geo_boundary(row["h3_index"])
-                hex_poly = Polygon(hex_boundary)
-                density_data.append(
-                    {
-                        "geometry": hex_poly,
-                        "density": row["count"],
-                        "h3_index": row["h3_index"],
-                    }
-                )
-
-            density_gdf = gpd.GeoDataFrame(density_data, crs="EPSG:4326")
-        except ImportError:
-            st.warning("H3 library not available, falling back to grid method")
-            return calculate_stop_density(stops_gdf, method="grid", grid_size=grid_size)
-
-    else:  # method == 'grid'
-        # Simple grid-based counting
-        x_min, y_min, x_max, y_max = stops_gdf.total_bounds
-        x_bins = np.arange(x_min, x_max + grid_size, grid_size)
-        y_bins = np.arange(y_min, y_max + grid_size, grid_size)
-
-        # Count stops in each grid cell
-        density_data = []
-        for i in range(len(x_bins) - 1):
-            for j in range(len(y_bins) - 1):
-                x_min_cell, x_max_cell = x_bins[i], x_bins[i + 1]
-                y_min_cell, y_max_cell = y_bins[j], y_bins[j + 1]
-
-                # Count stops in this cell
-                mask = (
-                    (stops_gdf.geometry.x >= x_min_cell)
-                    & (stops_gdf.geometry.x < x_max_cell)
-                    & (stops_gdf.geometry.y >= y_min_cell)
-                    & (stops_gdf.geometry.y < y_max_cell)
-                )
-                count = mask.sum()
-
-                if count > 0:
-                    cell_center = Point(
-                        (x_min_cell + x_max_cell) / 2, (y_min_cell + y_max_cell) / 2
-                    )
-                    density_data.append(
-                        {
-                            "geometry": cell_center,
-                            "density": count,
-                            "x": (x_min_cell + x_max_cell) / 2,
-                            "y": (y_min_cell + y_max_cell) / 2,
-                        }
-                    )
-
-        density_gdf = gpd.GeoDataFrame(density_data, crs="EPSG:4326")
-
-    return density_gdf
-
-
-def add_stop_density_to_map(m, density_gdf, opacity=0.6, max_density=None):
-    """Add stop density heatmap layer to folium map"""
-
-    if density_gdf is None or len(density_gdf) == 0:
-        return m
-
-    # Normalize density values
-    if max_density is None:
-        max_density = density_gdf["density"].max()
-
-    if max_density == 0:
-        return m
-
-    # Create heatmap data
-    heatmap_data = []
-    for _, row in density_gdf.iterrows():
-        if "x" in row and "y" in row:
-            lat, lon = row["y"], row["x"]
-        else:
-            lat, lon = row.geometry.y, row.geometry.x
-
-        # Normalize density to 0-1 range
-        normalized_density = min(row["density"] / max_density, 1.0)
-
-        heatmap_data.append([lat, lon, normalized_density])
-
-    if heatmap_data:
-        # Add heatmap layer
-        folium.plugins.HeatMap(
-            heatmap_data,
-            radius=15,
-            blur=10,
-            max_zoom=13,
-            opacity=opacity,
-            gradient={0.0: "blue", 0.3: "cyan", 0.6: "yellow", 1.0: "red"},
-        ).add_to(m)
-
-    return m
-
-
-def create_stop_density_analysis(gtfs_data):
-    """Create comprehensive stop density analysis"""
-
-    # Extract stop data
-    stops_gdf = extract_stop_data(gtfs_data)
-
-    if stops_gdf is None:
+def build_stop_graph(gtfs_data):
+    """Build undirected stop graph from GTFS stop_times; edge weight = distance (km).
+       Also returns stops dataframe (id, name, lat, lon) and per-edge route_ids."""
+    if gtfs_data is None or gtfs_data["stops"].empty or gtfs_data["stop_times"].empty or gtfs_data["trips"].empty:
         return None, None, None
 
-    # Calculate density using different methods
-    kde_density = calculate_stop_density(stops_gdf, method="kde")
-    grid_density = calculate_stop_density(stops_gdf, method="grid")
+    stops = gtfs_data["stops"][["stop_id","stop_name","stop_lat","stop_lon"]].dropna().copy()
+    stop_pos = stops.set_index("stop_id")[["stop_lat","stop_lon"]].to_dict("index")
 
-    # Basic statistics
-    total_stops = len(stops_gdf)
-    bounds = stops_gdf.total_bounds
-    area_km2 = (
-        (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]) * 111 * 111
-    )  # Rough conversion
-    density_per_km2 = total_stops / area_km2 if area_km2 > 0 else 0
+    # trip_id -> route_id
+    trip_to_route = gtfs_data["trips"][["trip_id","route_id"]].set_index("trip_id")["route_id"].to_dict()
 
-    # Find high-density areas
-    if kde_density is not None and len(kde_density) > 0:
-        high_density_threshold = kde_density["density"].quantile(0.9)
-        high_density_areas = kde_density[
-            kde_density["density"] >= high_density_threshold
-        ]
+    # Build adjacency and edge->routes map
+    adj = {}                     # stop_id -> list[(nbr_id, weight_km)]
+    edge_routes = {}             # frozenset({u,v}) -> set(route_ids)
+
+    for trip_id, g in gtfs_data["stop_times"].sort_values(["trip_id","stop_sequence"]).groupby("trip_id"):
+        rid = trip_to_route.get(trip_id)
+        seq = g[["stop_id","stop_sequence"]].values
+        for i in range(1, len(seq)):
+            u = str(seq[i-1][0]); v = str(seq[i][0])
+            if u not in stop_pos or v not in stop_pos:
+                continue
+            lat1, lon1 = stop_pos[u]["stop_lat"], stop_pos[u]["stop_lon"]
+            lat2, lon2 = stop_pos[v]["stop_lat"], stop_pos[v]["stop_lon"]
+            w = max(haversine_km(lat1, lon1, lat2, lon2), 1e-4)  # avoid zero-weight
+
+            # undirected insert with minimum weight
+            adj.setdefault(u, [])
+            adj.setdefault(v, [])
+            # store; allow parallel routes via edge_routes
+            key = frozenset({u, v})
+            edge_routes.setdefault(key, set())
+            if rid is not None:
+                edge_routes[key].add(str(rid))
+
+            # keep smallest observed weight per neighbor
+            def upsert(a, b, w):
+                for i,(nb, ww) in enumerate(a):
+                    if nb == b:
+                        if w < ww: a[i] = (b, w)
+                        return
+                a.append((b, w))
+            upsert(adj[u], v, w)
+            upsert(adj[v], u, w)
+
+    return adj, stops, edge_routes
+
+def dijkstra_path(adj, start, goal):
+    """Plain Dijkstra on the adjacency from build_stop_graph; returns (path_stop_ids, total_km)."""
+    if start not in adj or goal not in adj:
+        return None, float("inf")
+    dist = {start: 0.0}
+    prev = {}
+    pq = [(0.0, start)]
+    seen = set()
+    while pq:
+        d, u = heapq.heappop(pq)
+        if u in seen: 
+            continue
+        seen.add(u)
+        if u == goal:
+            break
+        for v, w in adj.get(u, []):
+            nd = d + w
+            if nd < dist.get(v, float("inf")):
+                dist[v] = nd
+                prev[v] = u
+                heapq.heappush(pq, (nd, v))
+    if goal not in dist:
+        return None, float("inf")
+    # reconstruct
+    path = [goal]
+    while path[-1] != start:
+        path.append(prev[path[-1]])
+    path.reverse()
+    return path, dist[goal]
+
+def estimate_fare(path, stops_df, edge_routes, gtfs_data, fallback_rate_per_km=0.9):
+    """Estimate fare: if GTFS fares exist, count boardings by contiguous route segments; else km * rate."""
+    if not path or len(path) < 2:
+        return 0.0, 0
+    # distance
+    pos = stops_df.set_index("stop_id")[["stop_lat","stop_lon"]].to_dict("index")
+    total_km = sum(haversine_km(pos[path[i]]["stop_lat"], pos[path[i]]["stop_lon"],
+                                pos[path[i+1]]["stop_lat"], pos[path[i+1]]["stop_lon"])
+                   for i in range(len(path)-1))
+
+    fares = gtfs_data.get("fare_attributes")
+    rules = gtfs_data.get("fare_rules")
+    trips = gtfs_data.get("trips")
+    route_to_fare = {}
+    if fares is not None and not fares.empty and rules is not None and not rules.empty:
+        # map route_id -> min fare price found
+        route_to_fare = (rules[["route_id","fare_id"]]
+            .merge(fares[["fare_id","price"]], on="fare_id", how="left")
+            .dropna(subset=["route_id","price"])
+            .groupby("route_id")["price"].min().to_dict())
+
+    if route_to_fare:
+        # infer contiguous route segments along the path using edge_routes
+        def edge_key(a,b): return frozenset({a,b})
+        route_seq = []
+        for i in range(len(path)-1):
+            candidates = list(edge_routes.get(edge_key(path[i], path[i+1]), []))
+            route_seq.append(candidates[0] if candidates else None)
+
+        # compress consecutive duplicates, ignore None
+        boardings = []
+        last = None
+        for r in route_seq:
+            if r is None: 
+                continue
+            if r != last:
+                boardings.append(r)
+                last = r
+        fare_est = float(sum(route_to_fare.get(r, 0.0) for r in boardings))
+        return fare_est, len(boardings)-1 if boardings else 0
     else:
-        high_density_areas = None
-
-    return {
-        "stops_gdf": stops_gdf,
-        "kde_density": kde_density,
-        "grid_density": grid_density,
-        "total_stops": total_stops,
-        "area_km2": area_km2,
-        "density_per_km2": density_per_km2,
-        "high_density_areas": high_density_areas,
-        "bounds": bounds,
-    }
-
+        # fallback per-km
+        return float(total_km * fallback_rate_per_km), 0
 
 # =============================================================================
-# PDF REPORT GENERATION
+# STREAMLINED UI FUNCTIONS
 # =============================================================================
-
-
-def export_plotly_chart_as_base64(fig):
-    """Export Plotly chart as base64 encoded image"""
-    try:
-        import plotly.io as pio
-
-        # Update the figure with proper styling for PDF
-        fig.update_layout(
-            font=dict(color="black"),
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            xaxis=dict(
-                gridcolor="lightgray", linecolor="black", tickfont=dict(color="black")
-            ),
-            yaxis=dict(
-                gridcolor="lightgray", linecolor="black", tickfont=dict(color="black")
-            ),
-        )
-
-        img_bytes = pio.to_image(fig, format="png", width=800, height=500)
-        return base64.b64encode(img_bytes).decode()
-    except Exception as e:
-        st.warning(f"Chart export failed: {e}")
-        return None
-
-
-def export_folium_map_as_base64(folium_map, width=800, height=600):
-    """Export Folium map as base64 encoded image using Selenium"""
-    if not SELENIUM_AVAILABLE:
-        return None
-
-    try:
-        # Save map as HTML
-        map_html = folium_map._repr_html_()
-
-        # Use selenium to capture screenshot
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-plugins")
-        options.add_argument("--disable-images")
-        options.add_argument("--disable-web-security")
-        options.add_argument("--allow-running-insecure-content")
-        options.add_argument("--disable-features=VizDisplayCompositor")
-        options.add_argument(f"--window-size={width},{height}")
-
-        # Check for Docker environment variables
-        chrome_bin = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
-        chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-
-        if os.path.exists(chrome_bin):
-            options.binary_location = chrome_bin
-
-        # Try different driver initialization methods
-        driver = None
-        try:
-            if os.path.exists(chromedriver_path):
-                from selenium.webdriver.chrome.service import Service
-
-                service = Service(executable_path=chromedriver_path)
-                driver = webdriver.Chrome(service=service, options=options)
-            else:
-                # Fallback to default Chrome driver
-                driver = webdriver.Chrome(options=options)
-        except Exception as e:
-            st.warning(f"Chrome driver initialization failed: {e}")
-            return None
-
-        if driver is None:
-            return None
-
-        try:
-            driver.set_window_size(width, height)
-
-            # Create temporary HTML file
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".html", delete=False
-            ) as f:
-                f.write(f"""
-                <!DOCTYPE html>
-                <html><head><meta charset="utf-8"></head>
-                <body style="margin:0;padding:0;">{map_html}</body></html>
-                """)
-                temp_path = f.name
-
-            driver.get(f"file://{temp_path}")
-            time.sleep(5)  # Wait longer for map to load in Docker
-
-            screenshot = driver.get_screenshot_as_png()
-
-            # Clean up temp file
-            os.unlink(temp_path)
-
-            return base64.b64encode(screenshot).decode()
-
-        finally:
-            driver.quit()
-
-    except Exception as e:
-        st.warning(f"Map export failed: {e}")
-        return None
-
-
-def generate_professional_pdf_report(
-    impact,
-    route_geometries,
-    selected_routes,
-    gtfs_data,
-    viability=None,  # Now optional/unused
-    stop_density_analysis=None,
-):
-    """Generate comprehensive PDF report with maps and charts (no viability logic)"""
-
-    if not WEASYPRINT_AVAILABLE:
-        st.error(
-            "WeasyPrint not available. Please install: pip install weasyprint jinja2"
-        )
-        return None
-
-    # Generate charts and maps
-    charts_data = {}
-
-    # Economic breakdown chart
-    economic_data = pd.DataFrame(
-        {
-            "Category": [
-                "Fuel Savings",
-                "Maintenance Savings",
-                "Driver Savings",
-                "Vehicle Capital",
-            ],
-            "Value": [
-                impact["annual_fuel_cost_saved_ghc"],
-                impact["annual_maintenance_saved_ghc"],
-                impact["annual_driver_savings_ghc"],
-                impact["vehicle_capital_freed_ghc"],
-            ],
-        }
-    )
-
-    economic_fig = px.bar(
-        economic_data,
-        x="Category",
-        y="Value",
-        title="Economic Benefits by Category",
-        color_discrete_sequence=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"],
-    )
-    charts_data["economic_chart"] = export_plotly_chart_as_base64(economic_fig)
-
-    # Route type distribution
-    type_counts = route_geometries["route_type_geo"].value_counts()
-    route_fig = px.pie(
-        values=type_counts.values,
-        names=type_counts.index,
-        title="Route Type Distribution",
-        color_discrete_sequence=[
-            "#1f77b4",
-            "#ff7f0e",
-            "#2ca02c",
-            "#d62728",
-            "#9467bd",
-            "#8c564b",
-        ],
-    )
-    charts_data["route_distribution"] = export_plotly_chart_as_base64(route_fig)
-
-    # Create maps
-    def create_before_map_for_pdf(_route_geometries):
-        bounds = _route_geometries.total_bounds
-        center_lat = (bounds[1] + bounds[3]) / 2
-        center_lon = (bounds[0] + bounds[2]) / 2
-        m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
-        for idx, route in _route_geometries.iterrows():
-            if route["geometry"].geom_type == "LineString":
-                coords = [(lat, lon) for lon, lat in route["geometry"].coords]
-                folium.PolyLine(
-                    coords,
-                    color="blue",
-                    weight=2,
-                    opacity=0.7,
-                    popup=f"ORIGINAL: {route['route_short_name']} ({route['length_km']:.1f} km)",
-                ).add_to(m)
-        return m
-
-    def create_after_map_for_pdf(_route_geometries, selected_routes):
-        bounds = _route_geometries.total_bounds
-        center_lat = (bounds[1] + bounds[3]) / 2
-        center_lon = (bounds[0] + bounds[2]) / 2
-        m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
-        selected_gdf = _route_geometries[
-            _route_geometries["route_id"].isin(selected_routes)
-        ]
-        for idx, route in selected_gdf.iterrows():
-            if route["geometry"].geom_type == "LineString":
-                coords = [(lat, lon) for lon, lat in route["geometry"].coords]
-                folium.PolyLine(
-                    coords,
-                    color="red",
-                    weight=4,
-                    opacity=0.8,
-                    popup=f"SELECTED: {route['route_short_name']} ({route['length_km']:.1f} km)",
-                ).add_to(m)
-        return m
-
-    before_map = create_before_map_for_pdf(route_geometries)
-    after_map = create_after_map_for_pdf(route_geometries, selected_routes)
-
-    try:
-        charts_data["before_map"] = export_folium_map_as_base64(before_map)
-    except Exception as e:
-        charts_data["before_map"] = None
-    try:
-        charts_data["after_map"] = export_folium_map_as_base64(after_map)
-    except Exception as e:
-        charts_data["after_map"] = None
-
-    # --- Add stop density heatmap ---
-    if stop_density_analysis is None:
-        stop_density_analysis = create_stop_density_analysis(gtfs_data)
-    stop_density_img = None
-    if stop_density_analysis and stop_density_analysis.get("kde_density") is not None:
-        # Create folium map with heatmap overlay
-        kde_density = stop_density_analysis["kde_density"]
-        stops_gdf = stop_density_analysis["stops_gdf"]
-        bounds = stops_gdf.total_bounds
-        center_lat = (bounds[1] + bounds[3]) / 2
-        center_lon = (bounds[0] + bounds[2]) / 2
-        m_density = folium.Map(location=[center_lat, center_lon], zoom_start=11)
-        add_stop_density_to_map(m_density, kde_density)
-        try:
-            stop_density_img = export_folium_map_as_base64(m_density)
-        except Exception as e:
-            stop_density_img = None
-    charts_data["stop_density_map"] = stop_density_img
-
-    # HTML Template for PDF (no viability logic)
-    html_template = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>AccraIQ Municipal Transit Optimization Report</title>
-        <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; }
-            .header { background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%); color: white; padding: 2rem; text-align: center; border-radius: 10px; margin-bottom: 2rem; }
-            .section { margin-bottom: 2rem; }
-            .metrics-grid { display: flex; gap: 1rem; }
-            .metric-card { background: #f8f9fa; padding: 1.5rem; border-radius: 8px; text-align: center; border: 1px solid #e0e0e0; flex: 1; }
-            .metric-card h3 { margin: 0 0 0.5rem 0; font-size: 0.9rem; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-            .metric-card .value { font-size: clamp(1.1rem, 2vw, 1.4rem); font-weight: bold; color: #333; margin: 0; overflow-wrap: break-word; word-break: break-all; }
-            .metric-card .subtitle { font-size: 0.8rem; color: #666; margin: 0.25rem 0 0 0; }
-            .chart-container { text-align: center; margin: 1rem 0; }
-            .chart-container img { max-width: 100%; height: auto; border: 1px solid #e0e0e0; border-radius: 8px; }
-            .map-comparison { display: flex; gap: 1rem; }
-            .map-container { text-align: center; flex: 1; }
-            .map-container img { width: 100%; max-width: 350px; height: auto; border: 2px solid #e0e0e0; border-radius: 8px; }
-            .heatmap-section { margin: 2rem 0; text-align: center; }
-            .heatmap-section img { width: 100%; max-width: 500px; height: auto; border: 2px solid #e0e0e0; border-radius: 8px; }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>🚌 AccraIQ Municipal Transit Optimization</h1>
-            <p>Comprehensive Analysis Report</p>
-            <p>Generated: {{ report_date }}</p>
-        </div>
-
-        <div class="section">
-            <h2>Executive Summary</h2>
-            <div class="metrics-grid">
-                <div class="metric-card">
-                    <h3>Route Reduction</h3>
-                    <div class="value">{{ safe_format(impact.route_reduction_pct, ".1f") }}%</div>
-                    <div class="subtitle">{{ safe_int_format(impact.eliminated_routes) }} of {{ safe_int_format(impact.total_routes) }} routes</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Coverage Retained</h3>
-                    <div class="value">{{ safe_format(impact.coverage_retention_pct, ".1f") }}%</div>
-                    <div class="subtitle">{{ safe_int_format(impact.retained_length_km) }} km maintained</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Annual CO₂ Saved</h3>
-                    <div class="value">{{ safe_int_format(impact.annual_co2_saved_tonnes) }}</div>
-                    <div class="subtitle">tonnes per year</div>
-                </div>
-                <div class="metric-card">
-                    <h3>Annual Savings</h3>
-                    <div class="value">₵{{ safe_int_format(impact.total_annual_savings_ghc) }}</div>
-                    <div class="subtitle">total economic benefit</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="heatmap-section">
-            <h2>Transit Stop Density Heatmap</h2>
-            {% if charts_data.stop_density_map %}
-            <img src="data:image/png;base64,{{ charts_data.stop_density_map }}" alt="Transit Stop Density Heatmap">
-            <p><small>High-density areas indicate clusters of transit stops across Accra.</small></p>
-            {% else %}
-            <p><em>Stop density heatmap unavailable.</em></p>
-            {% endif %}
-        </div>
-
-        <div class="section">
-            <h2>Economic Impact Analysis</h2>
-            <ul>
-                <li><strong>Fuel Savings:</strong> ₵{{ safe_int_format(impact.annual_fuel_cost_saved_ghc) }}</li>
-                <li><strong>Maintenance Savings:</strong> ₵{{ safe_int_format(impact.annual_maintenance_saved_ghc) }}</li>
-                <li><strong>Driver Savings:</strong> ₵{{ safe_int_format(impact.annual_driver_savings_ghc) }}</li>
-                <li><strong>Total Annual:</strong> ₵{{ safe_int_format(impact.total_annual_savings_ghc) }}</li>
-            </ul>
-            {% if charts_data.economic_chart %}
-            <div class="chart-container">
-                <h3>Economic Benefits by Category</h3>
-                <img src="data:image/png;base64,{{ charts_data.economic_chart }}" alt="Economic Benefits Chart">
-            </div>
-            {% endif %}
-        </div>
-
-        <div class="section">
-            <h2>Network Analysis</h2>
-            {% if charts_data.route_distribution %}
-            <div class="chart-container">
-                <h3>Route Type Distribution</h3>
-                <img src="data:image/png;base64,{{ charts_data.route_distribution }}" alt="Route Distribution Chart">
-            </div>
-            {% endif %}
-            <ul>
-                <li><strong>Original Network:</strong> {{ impact.total_routes }} routes, {{ safe_format(impact.total_length_km, ".0f") }} km</li>
-                <li><strong>Optimized Network:</strong> {{ impact.retained_routes }} routes, {{ safe_format(impact.retained_length_km, ".0f") }} km</li>
-                <li><strong>Length Reduction:</strong> {{ safe_format(impact.length_reduction_pct, ".1f") }}%</li>
-            </ul>
-        </div>
-
-        <div class="section">
-            <h2>Network Visualization Comparison</h2>
-            <div class="map-comparison">
-                <div class="map-container">
-                    <h4>📊 Original Network</h4>
-                    {% if charts_data.before_map %}
-                    <img src="data:image/png;base64,{{ charts_data.before_map }}" alt="Original Network Map">
-                    {% endif %}
-                    <p><small>All {{ impact.total_routes }} routes ({{ safe_format(impact.total_length_km, ".0f") }} km total)</small></p>
-                </div>
-                <div class="map-container">
-                    <h4>🎯 Optimized Network</h4>
-                    {% if charts_data.after_map %}
-                    <img src="data:image/png;base64,{{ charts_data.after_map }}" alt="Optimized Network Map">
-                    {% endif %}
-                    <p><small>{{ impact.retained_routes }} selected routes ({{ safe_format(impact.retained_length_km, ".0f") }} km retained)</small></p>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-
-    # Render template with data
-    from jinja2 import Template
-
-    template = Template(html_template)
-
-    def safe_format(value, format_str=".1f"):
-        try:
-            if value is None:
-                return "0"
-            if format_str.startswith("."):
-                return f"{float(value):{format_str}}"
-            else:
-                return f"{float(value):{format_str}}"
-        except (ValueError, TypeError):
-            return "0"
-
-    def safe_int_format(value):
-        try:
-            if value is None:
-                return "0"
-            return f"{int(float(value)):,}"
-        except (ValueError, TypeError):
-            return "0"
-
-    template_data = {
-        "impact": impact,
-        "charts_data": charts_data,
-        "report_date": datetime.now().strftime("%B %d, %Y"),
-        "safe_format": safe_format,
-        "safe_int_format": safe_int_format,
-    }
-
-    html_content = template.render(**template_data)
-
-    # Generate PDF
-    try:
-        pdf_buffer = BytesIO()
-        weasyprint.HTML(string=html_content).write_pdf(pdf_buffer)
-        pdf_buffer.seek(0)
-        return pdf_buffer.getvalue()
-    except Exception as e:
-        st.warning(f"PDF generation failed: {e}")
-        return None
-
-
-# =============================================================================
-# STREAMLIT APP INTERFACE - SIMPLIFIED
-# =============================================================================
-
-
-def main():
-    # Clean, simple header
-    st.markdown(
-        """
-    <div class="main-header">
-        <h1>🚌 AccraIQ: Municipal Transit Optimization</h1>
-        <p>Optimize Accra's transit network with advanced algorithms</p>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # Simple sidebar with minimal controls
-    with st.sidebar:
-        st.header("⚙️ Settings")
-
-        # File upload
-        uploaded_file = st.file_uploader(
-            "Upload GTFS Data",
-            type=["zip"],
-            help="Upload gtfs-accra-ghana-2016.zip or compatible GTFS file",
-        )
-
-        st.divider()
-
-        # Analysis parameters
-        st.subheader("Analysis Parameters")
-        min_cluster_size = st.slider(
-            "Min Cluster Size", 3, 15, 5, help="Minimum routes per cluster"
-        )
-        coverage_threshold = st.slider(
-            "Coverage Threshold",
-            0.85,
-            0.98,
-            0.92,
-            step=0.01,
-            help="Minimum stop coverage required",
-        )
-        # Sample size will be set after loading data
-        sample_size = None
-
-    # Load data
-    with st.spinner("Loading transit data..."):
-        gtfs_data = load_real_gtfs_data(uploaded_file)
-
-    if gtfs_data is None:
-        st.error("No GTFS data available. Please upload a GTFS zip file.")
-        st.info("Expected file: `data/gtfs-accra-ghana-2016.zip`")
-        return
-
-    route_geometries = extract_all_route_geometries(gtfs_data)
-    if route_geometries.empty:
-        st.error("No route geometries could be extracted.")
-        return
-
-    # Set sample size slider now that we know the number of routes
-    with st.sidebar:
-        max_routes = len(route_geometries)
-        default_sample = max_routes
-        sample_size = st.slider(
-            "Sample Size", 50, max_routes, default_sample, help="Routes to analyze"
-        )
-
-    # Simple network overview
-    st.markdown(
-        '<h2 class="section-header">📊 Network Overview</h2>', unsafe_allow_html=True
-    )
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(
-            f"""
-            <div class="metric-card info">
-                <div class="metric-label">Total Routes</div>
-                <div class="metric-value">{len(route_geometries)}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with col2:
-        st.markdown(
-            f"""
-            <div class="metric-card info">
-                <div class="metric-label">Network Length</div>
-                <div class="metric-value">{route_geometries["length_km"].sum():.0f} km</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with col3:
-        st.markdown(
-            f"""
-            <div class="metric-card info">
-                <div class="metric-label">Avg Route</div>
-                <div class="metric-value">{route_geometries["length_km"].mean():.1f} km</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with col4:
-        st.markdown(
-            f"""
-            <div class="metric-card info">
-                <div class="metric-label">Longest Route</div>
-                <div class="metric-value">{route_geometries["length_km"].max():.1f} km</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # Simple run button
-    st.markdown(
-        """
-        <div class="run-button">
-            <h2>🚀 Ready to Optimize?</h2>
-            <p>Click below to run the complete municipal optimization analysis</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if st.button("🚀 RUN OPTIMIZATION", type="primary", use_container_width=True):
-        try:
-            start_time = time.time()
-
-            # Progress tracking
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-
-            # Step 1: DTW similarity matrix
-            status_text.text("Step 1/4: Computing route similarities...")
-            progress_bar.progress(25)
-
-            analyzer = ImprovedDTWAnalyzer(
-                route_geometries, normalizer=CoordinateNormalizer("utm")
-            )
-            distance_matrix_scaled = analyzer.compute_improved_similarity_matrix(
-                target_density=5, sample_size=sample_size
-            )
-
-            # Step 2: HDBSCAN clustering
-            status_text.text("Step 2/4: Clustering similar routes...")
-            progress_bar.progress(50)
-
-            final_labels = density_based_clustering_leaf_method(
-                distance_matrix_scaled,
-                analyzer.valid_route_indices,
-                min_cluster_size=min_cluster_size,
-                min_samples=min_cluster_size,
-            )
-
-            # Step 3: PuLP optimization
-            status_text.text("Step 3/4: Optimizing route selection...")
-            progress_bar.progress(75)
-
-            selected_routes, coverage_percent, final_count = (
-                pulp_set_cover_optimization(
-                    final_labels,
-                    analyzer.valid_route_indices,
-                    route_geometries,
-                    gtfs_data,
-                    coverage_threshold,
-                )
-            )
-
-            # Step 4: Impact calculation
-            status_text.text("Step 4/4: Calculating impact...")
-            progress_bar.progress(100)
-
-            impact_calculator = MunicipalImpactCalculator(route_geometries)
-            impact = impact_calculator.calculate_comprehensive_impact(
-                final_labels,
-                analyzer.valid_route_indices,
-                selected_routes,
-                coverage_percent,
-            )
-
-            elapsed_time = time.time() - start_time
-
-            # Store results
-            st.session_state.update(
-                {
-                    "impact": impact,
-                    "route_geometries": route_geometries,
-                    "selected_routes": selected_routes,
-                    "analysis_time": elapsed_time,
-                    "gtfs_data": gtfs_data,
-                }
-            )
-
-            progress_bar.empty()
-            status_text.empty()
-
-            st.success(f"✅ Optimization complete in {elapsed_time / 60:.1f} minutes!")
-
-        except Exception as e:
-            st.error(f"Analysis failed: {e}")
-            return
-
-    # Display results if available
-    if "impact" in st.session_state:
-        display_simplified_results()
-
-
-def display_simplified_results():
-    """Display simplified, focused results"""
-
-    impact = st.session_state.impact
-    route_geometries = st.session_state.route_geometries
-    selected_routes = st.session_state.selected_routes
-    analysis_time = st.session_state.get("analysis_time", 0)
-    gtfs_data = st.session_state.get("gtfs_data")
-
-    # Results header
-    st.markdown(
-        '<h2 class="section-header">📈 Optimization Results</h2>',
-        unsafe_allow_html=True,
-    )
-
-    # Key metrics in simple cards (white background, dark text)
-    card_style = "background:#fff;color:#222;border:1px solid #e0e0e0;border-radius:10px;padding:1.5rem;text-align:center;"
-    label_style = (
-        "font-size:0.9rem;color:#666;text-transform:uppercase;letter-spacing:1px;"
-    )
-    value_style = "font-size:2rem;font-weight:bold;color:#222;margin:0.5rem 0;"
-    subtitle_style = "font-size:0.9rem;color:#888;"
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.markdown(
-            f"""
-            <div style='{card_style}'>
-                <div style='{label_style}'>Route Reduction</div>
-                <div style='{value_style}'>{impact["route_reduction_pct"]:.1f}%</div>
-                <div style='{subtitle_style}'>{impact["eliminated_routes"]} routes eliminated</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        st.markdown(
-            f"""
-            <div style='{card_style}'>
-                <div style='{label_style}'>Coverage Retained</div>
-                <div style='{value_style}'>{impact["coverage_retention_pct"]:.1f}%</div>
-                <div style='{subtitle_style}'>of original stops</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            f"""
-            <div style='{card_style}'>
-                <div style='{label_style}'>Annual Savings</div>
-                <div style='{value_style}'>₵{impact["total_annual_savings_ghc"]:,.0f}</div>
-                <div style='{subtitle_style}'>vs original network</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with col4:
-        st.markdown(
-            f"""
-            <div style='{card_style}'>
-                <div style='{label_style}'>CO₂ Saved</div>
-                <div style='{value_style}'>{impact["annual_co2_saved_tonnes"]:.0f}</div>
-                <div style='{subtitle_style}'>tonnes per year</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # Simple network comparison
-    st.markdown(
-        '<h3 class="section-header">🗺️ Network Comparison</h3>', unsafe_allow_html=True
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**📊 Original Network**")
-        before_map = create_simple_map(route_geometries, "blue", "Original")
-        st_folium(before_map, width=350, height=300, key="before_map")
-        st.caption(f"All {len(route_geometries)} routes")
-
-    with col2:
-        st.markdown("**🎯 Optimized Network**")
-        after_map = create_simple_map(
-            route_geometries, "red", "Selected", selected_routes
-        )
-        st_folium(after_map, width=350, height=300, key="after_map")
-        st.caption(f"{len(selected_routes)} selected routes")
-
-    # Simple summary (white background, dark text)
-    st.markdown(
-        f"""
-        <div style='background:#fff;color:#222;border:1px solid #e0e0e0;border-radius:10px;padding:2rem;margin:2rem 0;text-align:center;'>
-            <h3 style='color:#1e3c72;'>🎯 Optimization Summary</h3>
-            <p><strong>Routes:</strong> {impact["total_routes"]} → {impact["retained_routes"]} ({impact["route_reduction_pct"]:.1f}% reduction)</p>
-            <p><strong>Coverage:</strong> {impact["coverage_retention_pct"]:.1f}% of stops maintained</p>
-            <p><strong>Annual Savings:</strong> ₵{impact["total_annual_savings_ghc"]:,.0f}</p>
-            <p><strong>Environmental Impact:</strong> {impact["annual_co2_saved_tonnes"]:.0f} tonnes CO₂ saved annually</p>
-            <p><strong>Analysis Time:</strong> {analysis_time / 60:.1f} min</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Simple export options
-    st.markdown(
-        '<h3 class="section-header">📁 Export Results</h3>', unsafe_allow_html=True
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        # Selected routes CSV
-        selected_df = route_geometries[
-            route_geometries["route_id"].isin(selected_routes)
-        ]
-        selected_csv = selected_df.drop("geometry", axis=1).to_csv(index=False)
-        st.download_button(
-            label="📄 Download Selected Routes (CSV)",
-            data=selected_csv,
-            file_name="accra_optimized_routes.csv",
-            mime="text/csv",
-        )
-
-    with col2:
-        # Impact summary JSON
-        impact_summary = {
-            "route_reduction_pct": impact["route_reduction_pct"],
-            "coverage_retention_pct": impact["coverage_retention_pct"],
-            "annual_savings_ghc": impact["total_annual_savings_ghc"],
-            "annual_co2_saved_tonnes": impact["annual_co2_saved_tonnes"],
-        }
-        impact_json = json.dumps(impact_summary, indent=2)
-        st.download_button(
-            label="📊 Download Summary (JSON)",
-            data=impact_json,
-            file_name="accra_optimization_summary.json",
-            mime="application/json",
-        )
-
-    with col3:
-        # PDF Export (restored)
-        if WEASYPRINT_AVAILABLE:
-            if st.button("📄 Generate PDF Report", type="primary"):
-                with st.spinner("Generating PDF report... This may take a minute."):
-                    try:
-                        pdf_data = generate_professional_pdf_report(
-                            impact,
-                            route_geometries,
-                            selected_routes,
-                            gtfs_data,
-                            None,  # No viability
-                            None,
-                        )
-                        if pdf_data:
-                            st.download_button(
-                                label="Download PDF Report",
-                                data=pdf_data,
-                                file_name=f"AccraIQ_Report_{datetime.now().strftime('%Y%m%d')}.pdf",
-                                mime="application/pdf",
-                            )
-                        else:
-                            st.warning("PDF generation failed.")
-                    except Exception as e:
-                        st.error(f"PDF generation failed: {e}")
-        else:
-            st.info("Install WeasyPrint: pip install weasyprint jinja2")
-
 
 def create_simple_map(route_geometries, color, label, selected_routes=None):
     """Create a simple map for visualization"""
@@ -1906,13 +810,9 @@ def create_simple_map(route_geometries, color, label, selected_routes=None):
     m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
 
     if selected_routes:
-        # Show only selected routes
-        selected_gdf = route_geometries[
-            route_geometries["route_id"].isin(selected_routes)
-        ]
+        selected_gdf = route_geometries[route_geometries["route_id"].isin(selected_routes)]
         routes_to_show = selected_gdf
     else:
-        # Show all routes (sampled if too many)
         if len(route_geometries) > 100:
             routes_to_show = route_geometries.sample(100, random_state=42)
         else:
@@ -1931,6 +831,280 @@ def create_simple_map(route_geometries, color, label, selected_routes=None):
 
     return m
 
+def setup_sidebar():
+    """Sidebar: data source + explicit preset with numbers and intent."""
+    with st.sidebar:
+        st.header("⚙️ Dataset")
+        data_mode = st.radio("Source", ["Sample (Accra 2016)", "Upload GTFS"], index=0)
+        uploaded_file = st.file_uploader("GTFS .zip", type=["zip"]) if data_mode == "Upload GTFS" else None
+
+        st.divider()
+        st.header("🎯 Optimization goal")
+
+        # present readable labels directly from PRESETS
+        labels = list(PRESETS.keys())
+        default_ix = labels.index("🏛 Municipal default — 92% coverage (all routes)") if "🏛 Municipal default — 92% coverage (all routes)" in labels else 0
+        preset_label = st.selectbox("Preset", options=labels, index=default_ix)
+
+        # show exact parameters so it's obvious what will run
+        cfg = PRESETS[preset_label]
+        cap_text = "all routes" if cfg["sample_cap"] in (None, 0) else f"cap {cfg['sample_cap']} routes"
+        st.caption(
+            f"**Preset details:** "
+            f"Coverage ≥ **{int(cfg['coverage_threshold']*100)}%**, "
+            f"DTW signature density **{cfg['target_density']}×4 pts**, "
+            f"{cap_text}. "
+            f"{cfg.get('blurb','')}"
+        )
+
+        # optional tiny override for folks who want control—off by default
+        with st.expander("Advanced (optional)", expanded=False):
+            if st.toggle("Tweak this preset"):
+                cov = st.slider("Minimum stop coverage (%)", 85, 98, int(cfg["coverage_threshold"]*100), step=1)
+                dens = st.slider("Route signature density (×4 points)", 4, 12, cfg["target_density"])
+                cap = st.number_input("Max routes to analyze (0 = all)", min_value=0, value=0 if cfg["sample_cap"] in (None, 0) else int(cfg["sample_cap"]), step=50)
+                cfg = {
+                    "coverage_threshold": cov/100.0,
+                    "target_density": int(dens),
+                    "sample_cap": None if cap == 0 else int(cap)
+                }
+                st.caption("Advanced override active.")
+
+        return uploaded_file, preset_label, cfg
+
+def run_pipeline(cfg, uploaded_file):
+    """Streamlined pipeline using explicit cfg dict (from preset or override)."""
+    gtfs_data = load_real_gtfs_data(uploaded_file)
+    if gtfs_data is None:
+        st.error("No GTFS data available. Upload a zip or ensure sample file exists.")
+        st.stop()
+
+    route_geometries = extract_all_route_geometries(gtfs_data)
+    if route_geometries.empty:
+        st.error("No route geometries could be extracted.")
+        st.stop()
+
+    analyzer = ImprovedDTWAnalyzer(route_geometries, normalizer=CoordinateNormalizer("utm"))
+    dm = analyzer.compute_improved_similarity_matrix(
+        target_density=cfg["target_density"],
+        sample_size=cfg["sample_cap"]
+    )
+
+    # Auto min_cluster_size from neighbor density
+    pos = dm[dm > 0]
+    thr = np.nanmedian(pos) if pos.size else 0
+    neighbor_counts = (dm < thr).sum(axis=1) if thr > 0 else np.full(dm.shape[0], 6)
+    min_cluster_size = int(np.clip(np.percentile(neighbor_counts, 30), 5, 12))
+
+    final_labels = density_based_clustering_leaf_method(
+        dm, analyzer.valid_route_indices,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_cluster_size
+    )
+
+    selected_routes, coverage_percent, _ = pulp_set_cover_optimization(
+        final_labels, analyzer.valid_route_indices, route_geometries, gtfs_data, cfg["coverage_threshold"]
+    )
+
+    impact = MunicipalImpactCalculator(route_geometries).calculate_comprehensive_impact(
+        final_labels, analyzer.valid_route_indices, selected_routes, coverage_percent
+    )
+
+    st.session_state.update({
+        "gtfs_data": gtfs_data,
+        "route_geometries": route_geometries,
+        "distance_matrix": dm,
+        "final_labels": final_labels,
+        "selected_routes": selected_routes,
+        "impact": impact,
+        "valid_indices": analyzer.valid_route_indices,
+        "cfg": cfg,
+    })
+
+def render_route_checker_tab(uploaded_file):
+    """Public-facing shortest path + fare estimator using GTFS stops."""
+    # Ensure GTFS loaded (works even if user didn't run the optimizer)
+    gtfs = st.session_state.get("gtfs_data") or load_real_gtfs_data(uploaded_file)
+    if gtfs is None or gtfs["stops"].empty:
+        st.info("Load the sample or upload a GTFS zip on the left.")
+        return
+
+    adj, stops_df, edge_routes = build_stop_graph(gtfs)
+    if adj is None:
+        st.info("GTFS missing stop_times/trips; cannot build the route graph.")
+        return
+
+    st.markdown('<div class="section-title">Route & Fare Checker</div>', unsafe_allow_html=True)
+
+    # Simple search lists
+    stops_df = stops_df.copy()
+    stops_df["label"] = stops_df["stop_name"].astype(str) + " • " + stops_df["stop_id"].astype(str)
+
+    c1, c2, c3 = st.columns([1.2, 1.2, 0.6])
+    with c1:
+        src_label = st.selectbox("From", options=stops_df["label"].sort_values().tolist(), index=0)
+    with c2:
+        dst_label = st.selectbox("To", options=stops_df["label"].sort_values().tolist(), index=min(1, len(stops_df)-1))
+    with c3:
+        fallback_rate = st.number_input("Fallback fare (₵/km)", min_value=0.0, value=0.9, step=0.1, help="Used only if GTFS has no fare tables")
+
+    # Extract IDs
+    src_id = src_label.split(" • ")[-1]
+    dst_id = dst_label.split(" • ")[-1]
+
+    go = st.button("🧭 Find route", use_container_width=True)
+    if go:
+        st.session_state["route_query"] = {
+            "src_id": src_id,
+            "dst_id": dst_id,
+            "fallback_rate": float(fallback_rate),
+        }
+
+    # If no prior click, wait for user action
+    if "route_query" not in st.session_state:
+        return
+
+    # Use last confirmed inputs so the results persist across reruns
+    src_id = st.session_state["route_query"]["src_id"]
+    dst_id = st.session_state["route_query"]["dst_id"]
+    fallback_rate = st.session_state["route_query"]["fallback_rate"]
+
+    path, km = dijkstra_path(adj, src_id, dst_id)
+    if not path:
+        st.warning("No path found between those stops.")
+        return
+
+    fare_est, transfers = estimate_fare(path, stops_df, edge_routes, gtfs, fallback_rate_per_km=fallback_rate)
+
+    # KPIs
+    c = st.columns(4)
+    with c[0]: st.metric("Shortest distance", f"{km:.1f} km")
+    with c[1]: st.metric("Transfers", f"{max(transfers,0)}")
+    with c[2]: st.metric("Estimated fare", f"₵{fare_est:.2f}")
+    with c[3]: st.metric("Stops on path", f"{len(path)}")
+
+    # Map
+    pos = stops_df.set_index("stop_id")[["stop_lat","stop_lon"]].to_dict("index")
+    m = folium.Map(location=[pos[path[0]]["stop_lat"], pos[path[0]]["stop_lon"]], zoom_start=12)
+    coords = [(pos[s]["stop_lat"], pos[s]["stop_lon"]) for s in path]
+    folium.PolyLine(coords, color="#d32f2f", weight=5, opacity=0.85).add_to(m)
+    folium.CircleMarker(location=coords[0], radius=5, color="#1a73e8", fill=True, popup="Start").add_to(m)
+    folium.CircleMarker(location=coords[-1], radius=5, color="#2e7d32", fill=True, popup="End").add_to(m)
+    st_folium(m, height=460, use_container_width=True)
+
+    # Steps list
+    names = stops_df.set_index("stop_id")["stop_name"].to_dict()
+    st.write("**Stops along the way**")
+    st.write(" → ".join([names.get(s, s) for s in path]))
+
+def kpi_card(title, value):
+    """Render a KPI card"""
+    st.markdown(f"""
+    <div class="kpi">
+      <h4>{title}</h4>
+      <div class="value">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_results_tabs():
+    """Render results in streamlined tabs"""
+    impact           = st.session_state["impact"]
+    route_geometries = st.session_state["route_geometries"]
+    selected_routes  = st.session_state["selected_routes"]
+    final_labels     = st.session_state["final_labels"]
+    valid_indices    = st.session_state["valid_indices"]
+
+    # KPIs
+    st.markdown('<div class="section-title">Key outcomes</div>', unsafe_allow_html=True)
+    c = st.columns(4)
+    with c[0]: kpi_card("Route reduction", f"{impact['route_reduction_pct']:.1f}%")
+    with c[1]: kpi_card("Coverage kept", f"{impact['coverage_retention_pct']:.1f}%")
+    with c[2]: kpi_card("Annual savings", f"₵{impact['total_annual_savings_ghc']:,.0f}")
+    with c[3]: kpi_card("CO₂ saved", f"{impact['annual_co2_saved_tonnes']:.0f} t/yr")
+
+    # Only three tabs
+    t1, t2, t3 = st.tabs(["Map", "Clusters", "Exports"])
+
+    # Before/After map
+    with t1:
+        show_after = st.toggle("Show optimized network", value=True)
+        m = create_simple_map(
+            route_geometries,
+            "red" if show_after else "blue",
+            "Selected" if show_after else "Original",
+            selected_routes if show_after else None
+        )
+        st_folium(m, height=480, use_container_width=True)
+
+    # Clusters summary
+    with t2:
+        st.markdown("**Cluster summary** (representatives = routes we kept)")
+        labels = pd.Series(final_labels, name="cluster")
+        rows = pd.DataFrame({"row_idx": valid_indices}).reset_index(drop=True)
+        tmp = pd.concat([rows, labels], axis=1)
+        tmp["route_id"] = tmp["row_idx"].apply(lambda i: route_geometries.iloc[i]["route_id"])
+        tmp["is_representative"] = tmp["route_id"].isin(selected_routes)
+        agg = tmp.groupby("cluster").agg(
+            routes_in_cluster=("route_id","count"),
+            representatives=("is_representative","sum")
+        ).reset_index().sort_values("routes_in_cluster", ascending=False)
+        st.dataframe(agg, use_container_width=True, height=360)
+
+    # Exports (CSV + JSON only)
+    with t3:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            selected_df = route_geometries[route_geometries["route_id"].isin(selected_routes)]
+            st.download_button(
+                "📄 Selected routes (CSV)",
+                data=selected_df.drop("geometry", axis=1).to_csv(index=False),
+                file_name="accra_optimized_routes.csv",
+                mime="text/csv"
+            )
+
+        with col2:
+            summary = {
+                "route_reduction_pct": impact["route_reduction_pct"],
+                "coverage_retention_pct": impact["coverage_retention_pct"],
+                "annual_savings_ghc": impact["total_annual_savings_ghc"],
+                "annual_co2_saved_tonnes": impact["annual_co2_saved_tonnes"],
+                "selected_routes": selected_routes
+            }
+            st.download_button(
+                "📊 Summary (JSON)",
+                data=json.dumps(summary, indent=2),
+                file_name="accra_optimization_summary.json",
+                mime="application/json"
+            )
+
+def main():
+    """Main application"""
+    header()
+    uploaded_file, preset_label, cfg = setup_sidebar()
+
+    st.markdown(
+        f"<div class='section-title'>Selected preset</div>"
+        f"<div style='font-size:.95rem;color:var(--muted);'>{preset_label}</div>",
+        unsafe_allow_html=True
+    )
+
+    t_admin, t_public = st.tabs(["🏛️ Optimization (Admin)", "🧭 Route & Fare Checker"])
+
+    with t_admin:
+        run = st.button("🚀 Optimize network", type="primary", use_container_width=True)
+        if run:
+            t0 = time.time()
+            with st.spinner("Optimizing..."):
+                run_pipeline(cfg, uploaded_file)
+            st.success(f"Done in {(time.time()-t0):.1f}s")
+        if "impact" in st.session_state:
+            render_results_tabs()
+        else:
+            st.info("Load the sample or upload GTFS, pick a preset, then **Optimize network**.")
+
+    with t_public:
+        render_route_checker_tab(uploaded_file)
 
 if __name__ == "__main__":
     main()
